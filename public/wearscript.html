@@ -1,0 +1,414 @@
+<html style="width:100%; height:100%; overflow:hidden">
+<head>
+<!--<script src="https://cdnjs.cloudflare.com/ajax/libs/zepto/1.0/zepto.min.js"></script>-->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/underscore.js/1.5.2/underscore-min.js"></script>
+<script src="http://code.createjs.com/easeljs-0.7.0.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/0.9.16/socket.io.min.js"></script>
+</head>
+<body style="width:100%; height:100%; overflow:hidden; margin:0">
+<canvas id="canvas" width="640" height="360" style="display:block"></canvas>
+<script>
+
+// P300TextTarget
+function P300TextTarget(text, font, offcolor, oncolor) {
+    // Sensible defaults
+    this.offcolor = offcolor;
+    this.oncolor = oncolor;
+    this.attended = false;
+
+    this.target_id = null;
+    this.grid = null;
+
+    this.cjtext = new createjs.Text(text, font, this.offcolor);
+    this.cjtext.textBaseline = 'middle';
+    this.cjtext.textAlign = 'center';
+}
+
+P300TextTarget.prototype.toString = function() {
+    return "P300TextTarget - " + this.target_id;
+}
+
+P300TextTarget.prototype.setText = function(newtext) {
+    this.cjtext.text = newtext;
+}
+
+P300TextTarget.prototype.setID = function(id) {
+    if (!_.isNumber(id)) {
+        throw "ID must be a number"
+    }
+    this.target_id = id;
+}
+
+P300TextTarget.prototype.setGrid = function(grid) {
+    // Set a reference to the parent grid
+    this.grid = grid;
+}
+
+P300TextTarget.prototype.setPos = function(x, y) {
+    if (!(_.isNumber(x) && _.isNumber(y))) {
+        throw "Invalid coordinates"
+    }
+    this.cjtext.x = x;
+    this.cjtext.y = y;
+}
+
+P300TextTarget.prototype.setGridPos = function (row, column) {
+    if (!(_.isNumber(row) && _.isNumber(column))) {
+        throw "Invalid row/column";
+    }
+    this.row = row;
+    this.column = column;
+}
+
+P300TextTarget.prototype.setOn = function() {
+    this.cjtext.color = this.oncolor;
+};
+
+P300TextTarget.prototype.setOff = function() {
+    this.cjtext.color = this.offcolor;
+}
+
+P300TextTarget.prototype.setAttended = function(bAttended) {
+    if (_.isBoolean(bAttended)) {
+        this.attended = bAttended;
+    } else {
+        throw "bAttended must be a boolean";
+    };
+}
+
+// Blink the target on, off, then back on
+P300TextTarget.prototype.blink = function() {
+    // Turn on immediately
+    this.setOn();
+    this.grid.update();
+    // Wait 500ms, turn off
+    setTimeout(_.bind(function() {
+        this.setOff(); this.grid.update();
+    }, this), 500);
+    // Wait 1000ms, turn on
+    setTimeout(_.bind(function() {
+        this.setOn(); this.grid.update();
+    }, this), 1000);
+}
+
+
+// P300Grid
+// Stores targets and handles rendering of P300 Matrix
+//  canvas_id: DOM ID of the canvas element
+//  targets: an array of P300Target objects, placed one after another on the grid
+//  nrows: number of rows
+//  ncolumns: number of columns
+//  singleFlash: indicates whether to use row/column or single flash paradigm
+//
+//  this.targets = List of hashes with target, row, column
+function P300Grid(canvas_id, targets, nrows, ncolumns, singleFlash) {
+    var _this = this;
+    this.stage = new createjs.Stage(canvas_id);
+
+    // Add black Background
+    var bg = new createjs.Shape();
+    bg.graphics.beginFill("#000000").drawRect(0, 0, this.getWidth(), this.getHeight());
+    bg.cache(0, 0, this.getWidth(), this.getHeight());
+    this.stage.addChild(bg);
+    
+    if (!(_.isNumber(nrows) && _.isNumber(ncolumns))) {
+        throw "Invalid row/column size(s)";
+    }
+    this.nrows = nrows;
+    this.ncolumns = ncolumns;
+
+    if (!_.isArray(targets)) {
+        throw "Target list must be an array";
+    }
+
+    if (_.size(targets) > (nrows * ncolumns)) {
+        throw "Number of targets exceeds grid maximum";
+    }
+    this.targets = targets;
+
+    // Calculate spacing and starting position
+    var col_space = this.getWidth() / ncolumns;
+    var row_space = this.getHeight() / nrows;
+    var start_x = col_space - (col_space / 2);
+    var start_y = row_space - (row_space / 2);
+    
+    // Set XY and grid locations
+    var row = 1, col = 1;
+    _.each(this.targets, function(target, index) {
+        
+        target.setID(index);
+        target.setPos(
+            start_x + (col_space * (col - 1)), 
+            start_y + (row_space * (row - 1))
+        );
+        target.setGridPos(row, col);
+        target.setGrid(_this); // reference this grid
+        
+        if ((col + 1) > ncolumns) {
+            // Increment row counter and reset column counter
+            col = 1;
+            row += 1;
+        } else {
+            // Otherwise, increment column counter
+            col += 1;
+        }
+        _this.addTarget(target);
+    })
+
+    if (!_.isBoolean(singleFlash)) {
+        throw "singleFlash param must be a boolean";
+    }
+    this.singleFlash = singleFlash;
+    
+    // If singleFlash is true, create sets of rows and columns
+    // Else, create sets of rows and columns
+    this.targetGroups = {};
+    if (singleFlash) {
+        _.each(this.targets, function(target, index) {_this.targetGroups[index + 1] = [target]});
+    } else {
+        var rows = _.groupBy(this.targets, 'row');
+        _.each(rows, function(group, index) {_this.targetGroups[index] = group});
+        
+        var start_index = parseInt(_.size(_this.targetGroups));
+        var columns = _.groupBy(this.targets, 'column');
+        _.each(columns, function(group, index) {
+            var idx = start_index + parseInt(index);
+            _this.targetGroups[idx] = group;
+        });
+    }
+
+    this.update();
+}
+
+P300Grid.prototype.addTarget = function(target) {
+    this.stage.addChild(target.cjtext);
+}
+
+P300Grid.prototype.getWidth = function() {
+    // Get canvas width
+    return this.stage.canvas.width;
+}
+
+P300Grid.prototype.getHeight = function() {
+    // Get canvas height
+    return this.stage.canvas.height;
+}
+
+P300Grid.prototype.update = function() {
+    // Refresh the stage
+    this.stage.update();
+}
+
+P300Grid.prototype.targetGroupOn = function(key) {
+    // Turn a group of targets on
+    _.each(this.targetGroups[key], function(target) {
+        target.setOn();
+    });
+    this.update();
+}
+
+P300Grid.prototype.targetGroupOff = function(key) {
+    // Turn a group of targets off
+    _.each(this.targetGroups[key], function(target) {
+        target.setOff();
+    });
+    this.update();
+}
+
+P300Grid.prototype.reset = function() {
+    // Turn off all targets
+    _.each(this.targets, function(target) {
+        target.setOff();
+    });
+}
+
+
+// P300SessionManager
+// Handles WebSocket connection to server and speller session variables
+function P300SessionManager(socket_address) {
+    this.socket = io.connect(socket_address);
+    this.setSocketHandlers();
+    this.displayWaiting();
+}
+
+P300SessionManager.prototype.setSocketHandlers = function() {
+    var _this = this;
+
+    _this.socket.on('serverConfig', function (config) {
+        // Set configuration for speller sent from server (via web interface)
+        console.log("Recieved serverConfig");
+        WS.say("Recieved serverConfig");
+        _this.flashLength = config.flashLength;
+        _this.isi = config.isi;
+        _this.repetitions = config.repetitions;
+
+        var targetStrings = config.targetStrings.split(',');
+        if (_.size(targetStrings) != (config.nRows * config.nColumns)) {
+            console.log('Error: Number of target strings should be equal to rows * columns');
+            return null;
+        }
+
+        var targets = _.map(targetStrings, function(string) {
+            return new P300TextTarget(string, config.targetFont, config.targetOffColor, config.targetOnColor);
+        });
+
+        // Build a new grid and give it to the session manager
+        _this.setGrid(new P300Grid("canvas", targets, config.nRows, config.nColumns, config.singleFlash));
+
+        _this.emitReady();
+    });
+
+    _this.socket.on('serverTrialStart', function (data) {
+        // Countdown then run trial after 5 seconds using sequence sent from server.
+        WS.say("Starting trial");
+        console.log(data);
+        _this.displayCountdown();
+        setTimeout(_.bind(function(data) {
+            _this.runTrial(data.sequence);
+        }, this, data), 5000);
+        
+    });
+
+    _this.socket.on('serverClassifierResults', function (data) {
+        // Make k/v pairs of results and order by value
+        var target = _this.getTargetFromResults(data.results);
+        console.log("Selected target with id '" + target.target_id + "'");
+        target.blink();
+    });
+};
+
+P300SessionManager.prototype.displayWaiting = function() {
+    // Build and set a target that says waiting for config
+    var waitingTarget = new P300TextTarget('Waiting for config...', '60px Arial', '#FFFFFF', '#FFFFFF');
+    this.setGrid((new P300Grid("canvas", [waitingTarget], 1, 1, true)));
+}
+
+P300SessionManager.prototype.displayCountdown = function() {
+    // Countdown 3...2...1...
+    var spellerGrid = this.grid;
+    var number = 3;
+    var countdownTarget = new P300TextTarget(number.toString(), '60px Arial', '#FFFFFF', '#FFFFFF');
+    this.setGrid((new P300Grid("canvas", [countdownTarget], 1, 1, true)));
+    var interval = setInterval(_.bind(function() {
+        number = number - 1;
+        countdownTarget.setText(number.toString());
+        this.grid.update();
+    }, this), 1000);
+
+    setTimeout(_.bind(function(interval, spellerGrid) {
+        clearInterval(interval);
+        this.setGrid(spellerGrid);
+        this.grid.reset();
+        this.grid.update();
+    }, this, interval, spellerGrid), 3000);
+}
+
+P300SessionManager.prototype.setGrid = function(grid) {
+    this.grid = grid;
+    this.grid.update();
+}
+
+P300SessionManager.prototype.runTrial = function(sequence) {
+    var _this = this;
+    var trialTime = (_this.flashLength + _this.isi) * (sequence.length + 1);
+
+    var seqIndex = 0;
+    var flashInterval = setInterval(function() {
+        var tgKey = sequence[seqIndex];
+        var tg = _this.grid.targetGroups[tgKey];
+        var hasAttended = _.some(tg, function(target) {return (target.attended == true)});
+
+        _this.socket.emit('spellerFlashStart', {target_group: tgKey, index: seqIndex, attended: hasAttended});
+
+        _this.grid.targetGroupOn(tgKey);
+        
+        setTimeout(_.bind(function(tgKey) {
+            this.grid.targetGroupOff(tgKey);
+        }, _this, tgKey), _this.flashLength);
+
+        seqIndex += 1;
+
+    }, _this.flashLength + _this.isi);
+
+    setTimeout(_.bind(function (flashInterval) {
+        clearInterval(flashInterval);
+        setTimeout(_.bind(function() { 
+            this.socket.emit('spellerTrialEnd');
+        }, this), _this.flashLength + _this.isi);
+    }, _this, flashInterval), trialTime);
+}
+
+// Process classifier results and return the target with the highest results
+P300SessionManager.prototype.getTargetFromResults = function(results) {
+    
+    var sorted = _.sortBy(_.pairs(results), function(pair) {return pair[1];}).reverse();
+    
+    if (typeof(sorted) == undefined) {
+        console.log('Results error');
+        console.log('Results: ' + results);
+        return null;
+    }
+    
+    var maxkey = sorted[0][0],
+        max = this.grid.targetGroups[maxkey];
+    
+    console.log(sorted);
+    console.log(max);
+    console.log(_.values(this.grid.targetGroups));
+    var target;
+    if (this.grid.singleFlash) {
+        if (_.size(max) != 1) {
+            console.log("Unexpected target group length (should be 1, was " + _.size(max) + ")");
+            return null;
+        }
+        target = max[0];
+
+    } else {
+        // If row/column, find the second max and get intersection of the groups
+        var max2key = sorted[1][0],
+            max2 = this.grid.targetGroups[max2key],
+            intersect = _.intersection(max, max2);
+        if (_.size(intersect) != 1) {
+            console.log("Couldn't find intersection of maxes");
+            return null;
+        }
+        target = intersect[0];
+    }
+    console.log(target);
+    return target;
+}
+
+P300SessionManager.prototype.emitReady = function () {
+    this.socket.emit('spellerTrialReady', {
+        targetIDs: _.keys(this.grid.targetGroups)
+    });
+};
+
+P300SessionManager.prototype.emitTrialStart = function () {
+    WS.log("Sending spellerTrialStart");
+    this.socket.emit('spellerTrialStart');
+};
+
+function server() {
+    WS.log("Started Wearscript");
+    WS.say("Started Wearscript");
+
+    // Session variables
+    var nodeServerSockUrl = "ws://10.32.38.159:8002/";
+
+    // Create a session manager 
+    var sessionManager = new P300SessionManager(nodeServerSockUrl);
+
+    //WS.cameraPhoto();
+    //WS.cameraVideo();
+    //WS.cameraOff();
+    //WS.shutdown();
+}
+function main() {
+    if (WS.scriptVersion(0)) return;
+    WS.serverConnect('{{WSUrl}}', 'server');
+}
+window.onload = main;
+</script>
+</body>
+</html>

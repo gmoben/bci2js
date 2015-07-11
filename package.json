@@ -1,0 +1,7 @@
+{
+    "name": "BCI2000-server",
+    "dependencies": {
+        "express": "3.3.8",
+        "socket.io": "0.9.16"
+    }
+}

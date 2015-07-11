@@ -1,0 +1,13 @@
+{
+    "appConnector": {
+        "incomingIP": "10.32.38.100", 
+        "incomingPort": 5000,
+        "outgoingIP": "10.32.38.102", 
+        "outgoingPort": 5030
+    },
+    "websockets": {
+        "controlServerPort": 8001,
+        "spellerPort": 8002
+    }
+    
+}

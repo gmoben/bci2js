@@ -1,0 +1,145 @@
+
+<head>
+    <script src="//cdnjs.cloudflare.com/ajax/libs/socket.io/0.9.16/socket.io.min.js"></script>
+    <script src="http://code.jquery.com/jquery-1.10.1.min.js"></script>
+    <script src="http://code.jquery.com/jquery-migrate-1.2.1.min.js"></script>
+    <script src="//netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+
+    <link rel="stylesheet" type="text/css" href="//netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css">
+    <link rel="stylesheet" type="text/css" href="style.css">
+</head>
+
+<script>
+    $(function() {
+        var serverSocket = io.connect("http://10.32.38.159:8001");
+        
+        $('#configform').submit(function(event) {
+            event.preventDefault();
+            var config = {};
+            config['flashLength'] = parseInt($('#var_flashlength').val());
+            config['isi'] = parseInt($('#var_isi').val());
+            config['repetitions'] = parseInt($('#var_repetitions').val());
+            config['nRows'] = parseInt($('#var_nrows').val());
+            config['nColumns'] = parseInt($('#var_ncols').val());
+            console.log($('#var_singleflash').is(':checked'));
+            config['singleFlash'] = $('#var_singleflash').is(':checked');
+
+            config['targetStrings'] = $('#var_targetstrings').val();
+            config['targetFont'] = $('#var_targetfont').val();
+            config['targetOffColor'] = $('#var_targetoffcolor').val();
+            config['targetOnColor']  = $('#var_targetoncolor').val();
+            console.log(config);
+            serverSocket.emit('controlConfig', config);
+        });
+
+        $('#btn_starttrial').click(function() {
+            serverSocket.emit('controlStartTrial');
+        });
+    });
+</script>
+
+
+<html>
+    <div class="container">
+        <div class="row">
+            <div class="col-sm-6 col-sm-offset-3 centered" id="logo">
+                <h1 id="logo-text">BCI2JS</h1>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-sm-8 col-sm-offset-3">
+                <form class="form-horizontal" role="form" id='configform'>
+                  <div class="form-group">
+                    <label for="var_flashlength" class="col-sm-2 control-label">Flash Length</label>
+                    <div class="col-sm-6">
+                      <input type="text" class="form-control" id="var_flashlength" value="500">
+                      <span class='help-block'>Flash length (in milliseconds).</span>
+                    </div>
+                  </div>
+
+                  <div class="form-group">
+                    <label for="var_isi" class="col-sm-2 control-label">Inter-stimulus Interval</label>
+                    <div class="col-sm-6">
+                      <input type="text" class="form-control" id="var_isi" value="100">
+                      <span class='help-block'>Time to wait in between flashes (in milliseconds).</span>
+                    </div>
+                  </div>
+
+                  <div class="form-group">
+                    <label for="var_repetitions" class="col-sm-2 control-label">Flash Repetitions</label>
+                    <div class="col-sm-6">
+                      <input type="text" class="form-control" id="var_repetitions" value="3">
+                      <span class='help-block'>How many rounds of flashes</span>
+                    </div>
+                  </div>
+
+                  <div class="form-group">
+                    <label for="var_nrows" class="col-sm-2 control-label"># Rows</label>
+                    <div class="col-sm-6">
+                      <input type="text" class="form-control" id="var_nrows" value="2">
+                      <span class='help-block'>Number of rows in the matrix.</span>
+                    </div>
+                  </div>
+
+                  <div class="form-group">
+                    <label for="var_ncols" class="col-sm-2 control-label"># Columns</label>
+                    <div class="col-sm-6">
+                      <input type="text" class="form-control" id="var_ncols" value="3">
+                      <span class='help-block'>Number of columns in the matrix.</span>
+                    </div>
+                  </div>
+
+                  <div class="form-group">
+                    <label for="var_singleflash" class="col-sm-2 control-label">Single Flash?</label>
+                    <div class="col-sm-6">
+                      <input type="checkbox" id="var_singleflash">
+                      <span class='help-block'>If checked, do single flash. If unchecked, do row/column.</span>
+                    </div>
+                  </div>
+
+                  <div class="form-group">
+                    <label for="var_targetstrings" class="col-sm-2 control-label">Target Text</label>
+                    <div class="col-sm-6">
+                      <input type="text" class="form-control" id="var_targetstrings" value="A,B,C,D,E,F">
+                      <span class='help-block'>Comma-separated strings of text to display for each target.</span>
+                    </div>
+                  </div>
+
+                <div class="form-group">
+                    <label for="var_targetfont" class="col-sm-2 control-label">Font</label>
+                    <div class="col-sm-6">
+                      <input type="text" class="form-control" id="var_targetfont" value="80px Arial">
+                      <span class='help-block'>Size and font of target text.</span>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="var_targetoffcolor" class="col-sm-2 control-label">Off Color</label>
+                    <div class="col-sm-6">
+                      <input type="text" class="form-control" id="var_targetoffcolor" value="#444444">
+                      <span class='help-block'>Hexadecimal text color when flashing on.</span>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="var_targetoncolor" class="col-sm-2 control-label">On Color</label>
+                    <div class="col-sm-6">
+                      <input type="text" class="form-control" id="var_targetoncolor" value="#FFFFFF">
+                      <span class='help-block'>Hexadecimal text color when not flashing.</span>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <div class="col-sm-offset-2 col-sm-10">
+                      <button type="submit" class="btn btn-default" id='btn_sendconfig'>Send Config</button>
+                      <button type="button" class="btn btn-default" id='btn_starttrial'>Start Trial</button>
+                    </div>
+                </div>
+
+                </form>
+            </div>
+        </div>
+        
+    </div>
+    
+</html>
